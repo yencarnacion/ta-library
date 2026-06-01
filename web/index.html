@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TA Library</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>TA Library</h1>
+      <p id="statusText">Starting</p>
+    </div>
+    <div class="top-actions">
+      <button id="abortBtn" type="button">Abort</button>
+      <button id="generateSelectedBtn" type="button">Generate Selected</button>
+      <button id="generateAllBtn" type="button">Generate All</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="controls">
+      <label>
+        Single ticker
+        <input id="singleTicker" list="symbolList" placeholder="INTC">
+      </label>
+      <label>
+        Analysis date
+        <input id="analysisDate" type="date">
+      </label>
+      <div class="model-picker" id="modelPicker"></div>
+      <div class="job-metric">
+        <span>Done</span>
+        <strong id="doneCount">0</strong>
+      </div>
+      <div class="job-metric">
+        <span>Left</span>
+        <strong id="leftCount">0</strong>
+      </div>
+    </section>
+
+    <section class="progress-shell">
+      <div class="progress-header">
+        <div>
+          <h2>Generation Status</h2>
+          <p id="jobMessage">Ready</p>
+        </div>
+        <strong id="jobPercent">0%</strong>
+      </div>
+      <div class="progress-bar"><span id="progressFill"></span></div>
+      <div id="currentWork" class="current-work">Idle</div>
+    </section>
+
+    <section class="schedule-shell">
+      <div class="reports-header">
+        <div>
+          <h2>Schedules</h2>
+          <p>Managed by the CLI and monitored here</p>
+        </div>
+      </div>
+      <div id="schedulesList" class="schedules-list"></div>
+    </section>
+
+    <section class="workspace">
+      <aside class="symbol-panel">
+        <div class="panel-header">
+          <h2>Companies</h2>
+          <input id="symbolFilter" placeholder="Filter">
+        </div>
+        <div class="selection-actions">
+          <button id="selectVisibleBtn" type="button">Select Visible</button>
+          <button id="clearSelectionBtn" type="button">Clear</button>
+        </div>
+        <div id="symbolListBox" class="symbol-list"></div>
+      </aside>
+
+      <section class="reports-panel">
+        <div class="reports-header">
+          <div>
+            <h2>Reports</h2>
+            <p id="reportCount">0 reports</p>
+          </div>
+          <label>
+            Sort
+            <select id="sortReports">
+              <option value="ticker">Ticker</option>
+              <option value="updated">Generated</option>
+              <option value="model">Model</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Model</th>
+                <th>Generated</th>
+                <th>Analysis Date</th>
+                <th>Status</th>
+                <th>Links</th>
+              </tr>
+            </thead>
+            <tbody id="reportsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <datalist id="symbolList"></datalist>
+  <script src="/app.js"></script>
+</body>
+</html>

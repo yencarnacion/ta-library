@@ -1,0 +1,25 @@
+server_port: 9090
+timezone: "America/New_York"
+input_csv: "top-100.csv"
+output_dir: "output"
+tradingagents_dir: "/home/yamir/Documents/daytrading/tradingagents"
+
+models:
+  qwen:
+    label: "Qwen"
+    script: "go.sh"
+    enabled: true
+  gemini:
+    label: "Gemini"
+    script: "go-gemini.sh"
+    enabled: true
+  gemma4:
+    label: "Gemma 4"
+    script: "go-gemma4.sh"
+    enabled: true
+
+ui:
+  poll_seconds: 2
+
+logging:
+  level: "info"
