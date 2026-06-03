@@ -269,8 +269,9 @@ select {
   align-self: start;
   position: sticky;
   top: 86px;
-  max-height: calc(100vh - 108px);
+  height: calc(100vh - 108px);
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -289,6 +290,7 @@ select {
 .symbol-list {
   display: grid;
   gap: 7px;
+  min-height: 0;
   overflow: auto;
   padding-right: 4px;
 }
@@ -391,6 +393,7 @@ a:hover {
 
   .symbol-panel {
     position: static;
+    height: auto;
     max-height: 360px;
   }
 }
