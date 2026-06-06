@@ -97,10 +97,22 @@ button:disabled {
 .top-actions,
 .selection-actions,
 .model-picker,
-.links {
+.links,
+.report-tabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.report-tabs button {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.report-tabs button.active {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+  color: #fff;
 }
 
 .controls,
@@ -309,6 +321,15 @@ select {
   padding: 14px;
 }
 
+.report-tab-panel.hidden {
+  display: none;
+}
+
+.tab-count {
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
 .table-shell {
   overflow: auto;
   border: 1px solid var(--line);
@@ -342,6 +363,17 @@ th {
 
 tbody tr:hover {
   background: #f3f7f6;
+}
+
+.text-action {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.text-action.danger {
+  border-color: #e1b9b7;
+  color: var(--danger);
 }
 
 .badge {

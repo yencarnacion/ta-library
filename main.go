@@ -130,6 +130,7 @@ type ReportRecord struct {
 	SourceDir        string    `json:"source_dir"`
 	OutputPath       string    `json:"output_path"`
 	Latest           bool      `json:"latest"`
+	Archived         bool      `json:"archived,omitempty"`
 	Error            string    `json:"error,omitempty"`
 }
 
@@ -331,6 +332,8 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("GET /api/config", a.handleConfig)
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/reports", a.handleReports)
+	mux.HandleFunc("DELETE /api/reports", a.handleDeleteReport)
+	mux.HandleFunc("POST /api/reports/archive", a.handleArchiveReport)
 	mux.HandleFunc("POST /api/generate", a.handleGenerate)
 	mux.HandleFunc("POST /api/abort", a.handleAbort)
 	mux.HandleFunc("GET /api/schedules", a.handleSchedules)
@@ -367,10 +370,88 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleReports(w http.ResponseWriter, r *http.Request) {
 	sortBy := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort")))
 	a.mu.RLock()
-	reports := append([]ReportRecord(nil), a.reports...)
+	var reports []ReportRecord
+	var archived []ReportRecord
+	for _, report := range a.reports {
+		if report.Archived {
+			archived = append(archived, report)
+			continue
+		}
+		reports = append(reports, report)
+	}
 	a.mu.RUnlock()
 	sortReports(reports, sortBy)
-	writeJSON(w, http.StatusOK, map[string]any{"reports": reports})
+	sortReports(archived, sortBy)
+	writeJSON(w, http.StatusOK, map[string]any{"reports": reports, "archived_reports": archived})
+}
+
+func (a *App) handleDeleteReport(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "report id is required"})
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.reports {
+		if a.reports[i].ID != id {
+			continue
+		}
+		if !a.reports[i].Archived {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "only archived reports can be deleted"})
+			return
+		}
+		path := a.reportDiskPath(a.reports[i])
+		if !a.pathInArchive(path) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "archived report path is invalid"})
+			return
+		}
+		if err := os.RemoveAll(path); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		a.removeEmptyParents(filepath.Dir(path), a.archiveRoot())
+		a.reports = append(a.reports[:i], a.reports[i+1:]...)
+		a.markLatestLocked()
+		if err := a.saveReportIndexLocked(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": "report was not found"})
+}
+
+func (a *App) handleArchiveReport(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "report id is required"})
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for i := range a.reports {
+		if a.reports[i].ID != id {
+			continue
+		}
+		if a.reports[i].Archived {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+			return
+		}
+		if err := a.archiveReportLocked(i); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		a.markLatestLocked()
+		if err := a.saveReportIndexLocked(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		return
+	}
+	writeJSON(w, http.StatusNotFound, map[string]any{"error": "report was not found"})
 }
 
 func (a *App) handleSchedules(w http.ResponseWriter, r *http.Request) {
@@ -885,7 +966,13 @@ func (a *App) loadReportIndex() error {
 		return err
 	}
 	a.reports = payload.Reports
-	a.markLatestLocked()
+	if changed, err := a.reconcileReportsLocked(); err != nil {
+		return err
+	} else if changed {
+		if err := a.saveReportIndexLocked(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -918,13 +1005,19 @@ func (a *App) addReport(record ReportRecord) {
 	for i := range a.reports {
 		if a.reports[i].ID == record.ID {
 			a.reports[i] = record
-			a.markLatestLocked()
-			_ = a.saveReportIndexLocked()
+			if _, err := a.reconcileReportsLocked(); err != nil {
+				a.log.Warn("could not archive old reports", "err", err)
+			}
+			if err := a.saveReportIndexLocked(); err != nil {
+				a.log.Warn("could not save report index", "err", err)
+			}
 			return
 		}
 	}
 	a.reports = append(a.reports, record)
-	a.markLatestLocked()
+	if _, err := a.reconcileReportsLocked(); err != nil {
+		a.log.Warn("could not archive old reports", "err", err)
+	}
 	if err := a.saveReportIndexLocked(); err != nil {
 		a.log.Warn("could not save report index", "err", err)
 	}
@@ -934,6 +1027,9 @@ func (a *App) markLatestLocked() {
 	latest := map[string]int{}
 	for i := range a.reports {
 		a.reports[i].Latest = false
+		if a.reports[i].Archived {
+			continue
+		}
 		key := a.reports[i].Ticker + ":" + a.reports[i].Model
 		current, ok := latest[key]
 		if !ok || a.reports[i].GeneratedAt.After(a.reports[current].GeneratedAt) {
@@ -942,6 +1038,147 @@ func (a *App) markLatestLocked() {
 	}
 	for _, idx := range latest {
 		a.reports[idx].Latest = true
+	}
+}
+
+func (a *App) reconcileReportsLocked() (bool, error) {
+	changed := a.normalizeReportLocationsLocked()
+	a.markLatestLocked()
+	for i := range a.reports {
+		if a.reports[i].Archived || a.reports[i].Latest {
+			continue
+		}
+		if err := a.archiveReportLocked(i); err != nil {
+			return changed, err
+		}
+		changed = true
+	}
+	a.markLatestLocked()
+	return changed, nil
+}
+
+func (a *App) normalizeReportLocationsLocked() bool {
+	changed := false
+	for i := range a.reports {
+		if a.reports[i].OutputPath == "" {
+			continue
+		}
+		archived := a.pathInArchive(a.reportDiskPath(a.reports[i]))
+		if a.reports[i].Archived != archived {
+			a.reports[i].Archived = archived
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (a *App) archiveReportLocked(idx int) error {
+	record := a.reports[idx]
+	src := a.reportDiskPath(record)
+	if !a.pathInOutput(src) || a.pathInArchive(src) {
+		return fmt.Errorf("cannot archive report outside output directory: %s", src)
+	}
+	if _, err := os.Stat(src); err != nil {
+		return err
+	}
+	dst := uniquePath(filepath.Join(a.archiveRoot(), record.Ticker, record.Model, record.RunID))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return err
+	}
+	a.removeEmptyParents(filepath.Dir(src), a.cfg.OutputDir)
+	record.Archived = true
+	record.Latest = false
+	a.setReportPath(&record, dst)
+	if err := writeReportMetadata(dst, record); err != nil {
+		return err
+	}
+	a.reports[idx] = record
+	return nil
+}
+
+func (a *App) setReportPath(record *ReportRecord, path string) {
+	record.OutputPath = path
+	record.RunID = filepath.Base(path)
+	record.ID = fmt.Sprintf("%s:%s:%s", record.Ticker, record.Model, record.RunID)
+	baseURL := a.reportBaseURL(path)
+	record.ReportURL = baseURL + "/report.html"
+	record.FinalURL = optionalURL(baseURL, "final.html")
+	record.IndexURL = optionalURL(baseURL, "index.html")
+	record.ConsoleURL = optionalURL(baseURL, "console.txt")
+}
+
+func (a *App) reportBaseURL(path string) string {
+	outputAbs, err := filepath.Abs(a.cfg.OutputDir)
+	if err != nil {
+		return "/reports/" + filepath.ToSlash(filepath.Base(path))
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return "/reports/" + filepath.ToSlash(filepath.Base(path))
+	}
+	rel, err := filepath.Rel(outputAbs, pathAbs)
+	if err != nil {
+		return "/reports/" + filepath.ToSlash(filepath.Base(path))
+	}
+	return "/reports/" + filepath.ToSlash(rel)
+}
+
+func (a *App) reportDiskPath(record ReportRecord) string {
+	if strings.TrimSpace(record.OutputPath) != "" {
+		return filepath.Clean(record.OutputPath)
+	}
+	if strings.HasPrefix(record.ReportURL, "/reports/") {
+		rel := strings.TrimPrefix(record.ReportURL, "/reports/")
+		rel = strings.TrimSuffix(rel, "/report.html")
+		return filepath.Join(a.cfg.OutputDir, filepath.FromSlash(rel))
+	}
+	return filepath.Join(a.cfg.OutputDir, record.Ticker, record.Model, record.RunID)
+}
+
+func (a *App) archiveRoot() string {
+	return filepath.Join(a.cfg.OutputDir, "archived")
+}
+
+func (a *App) pathInOutput(path string) bool {
+	return pathWithin(path, a.cfg.OutputDir)
+}
+
+func (a *App) pathInArchive(path string) bool {
+	return pathWithin(path, a.archiveRoot())
+}
+
+func pathWithin(path, root string) bool {
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+func (a *App) removeEmptyParents(start, stop string) {
+	stopAbs, err := filepath.Abs(stop)
+	if err != nil {
+		return
+	}
+	for dir := filepath.Clean(start); ; dir = filepath.Dir(dir) {
+		dirAbs, err := filepath.Abs(dir)
+		if err != nil || dirAbs == stopAbs || !pathWithin(dir, stop) {
+			return
+		}
+		if err := os.Remove(dir); err != nil {
+			return
+		}
 	}
 }
 

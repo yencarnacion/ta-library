@@ -81,6 +81,10 @@
             <h2>Reports</h2>
             <p id="reportCount">0 reports</p>
           </div>
+          <div class="report-tabs" role="tablist" aria-label="Report views">
+            <button id="reportsTabBtn" class="active" type="button" role="tab" aria-selected="true" aria-controls="reportsTab">Latest</button>
+            <button id="archivedTabBtn" type="button" role="tab" aria-selected="false" aria-controls="archivedTab">Archived</button>
+          </div>
           <label>
             Sort
             <select id="sortReports">
@@ -90,20 +94,42 @@
             </select>
           </label>
         </div>
-        <div class="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Ticker</th>
-                <th>Model</th>
-                <th>Generated</th>
-                <th>Analysis Date</th>
-                <th>Status</th>
-                <th>Links</th>
-              </tr>
-            </thead>
-            <tbody id="reportsBody"></tbody>
-          </table>
+        <div id="reportsTab" class="report-tab-panel">
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Model</th>
+                  <th>Generated</th>
+                  <th>Analysis Date</th>
+                  <th>Status</th>
+                  <th>Links</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="reportsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="archivedTab" class="report-tab-panel hidden" hidden>
+          <p id="archivedReportCount" class="tab-count">0 archived reports</p>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Model</th>
+                  <th>Generated</th>
+                  <th>Analysis Date</th>
+                  <th>Status</th>
+                  <th>Links</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="archivedReportsBody"></tbody>
+            </table>
+          </div>
         </div>
       </section>
     </section>

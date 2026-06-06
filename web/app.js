@@ -25,8 +25,14 @@ const els = {
   currentWork: document.getElementById("currentWork"),
   schedulesList: document.getElementById("schedulesList"),
   reportsBody: document.getElementById("reportsBody"),
+  archivedReportsBody: document.getElementById("archivedReportsBody"),
   reportCount: document.getElementById("reportCount"),
+  archivedReportCount: document.getElementById("archivedReportCount"),
   sortReports: document.getElementById("sortReports"),
+  reportsTab: document.getElementById("reportsTab"),
+  archivedTab: document.getElementById("archivedTab"),
+  reportsTabBtn: document.getElementById("reportsTabBtn"),
+  archivedTabBtn: document.getElementById("archivedTabBtn"),
 };
 
 async function init() {
@@ -49,6 +55,10 @@ function wireEvents() {
   els.generateAllBtn.addEventListener("click", () => generate(true));
   els.abortBtn.addEventListener("click", abortJob);
   els.sortReports.addEventListener("change", refreshReports);
+  els.reportsTabBtn.addEventListener("click", () => showReportTab("reports"));
+  els.archivedTabBtn.addEventListener("click", () => showReportTab("archived"));
+  els.reportsBody.addEventListener("click", handleReportAction);
+  els.archivedReportsBody.addEventListener("click", handleReportAction);
 }
 
 function renderModels() {
@@ -156,7 +166,7 @@ async function refreshStatus() {
 async function refreshReports() {
   const sort = encodeURIComponent(els.sortReports.value || "ticker");
   const payload = await fetchJSON(`/api/reports?sort=${sort}`);
-  renderReports(payload.reports || []);
+  renderReports(payload.reports || [], payload.archived_reports || []);
 }
 
 async function refreshSchedules() {
@@ -210,9 +220,11 @@ function renderSchedules(schedules) {
   });
 }
 
-function renderReports(reports) {
+function renderReports(reports, archivedReports) {
   els.reportCount.textContent = `${reports.length} ${reports.length === 1 ? "report" : "reports"}`;
+  els.archivedReportCount.textContent = `${archivedReports.length} archived ${archivedReports.length === 1 ? "report" : "reports"}`;
   els.reportsBody.innerHTML = "";
+  els.archivedReportsBody.innerHTML = "";
   reports.forEach((report) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -222,13 +234,87 @@ function renderReports(reports) {
       <td>${escapeHTML(report.analysis_date || "")}</td>
       <td><span class="badge ${report.status === "failed" ? "failed" : ""}">${escapeHTML(report.status || "ready")}</span></td>
       <td class="links">
-        <a href="${report.report_url}" target="_blank" rel="noopener">Open</a>
-        <a href="${report.final_url}" target="_blank" rel="noopener">Final</a>
-        <a href="${report.index_url}" target="_blank" rel="noopener">Index</a>
+        ${reportLink(report.report_url, "Open")}
+        ${reportLink(report.final_url, "Final")}
+        ${reportLink(report.index_url, "Index")}
+      </td>
+      <td>
+        <button class="text-action" type="button" data-action="archive" data-id="${escapeHTML(report.id)}">Archive</button>
       </td>
     `;
     els.reportsBody.append(tr);
   });
+  archivedReports.forEach((report) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><strong>${escapeHTML(report.ticker)}</strong></td>
+      <td>${escapeHTML(report.model_label || report.model)}</td>
+      <td>${escapeHTML(report.generated_display || "")}</td>
+      <td>${escapeHTML(report.analysis_date || "")}</td>
+      <td><span class="badge ${report.status === "failed" ? "failed" : ""}">${escapeHTML(report.status || "ready")}</span></td>
+      <td class="links">
+        ${reportLink(report.report_url, "Open")}
+        ${reportLink(report.final_url, "Final")}
+        ${reportLink(report.index_url, "Index")}
+      </td>
+      <td>
+        <button class="text-action danger" type="button" data-action="delete" data-id="${escapeHTML(report.id)}">Delete</button>
+      </td>
+    `;
+    els.archivedReportsBody.append(tr);
+  });
+}
+
+function reportLink(url, label) {
+  if (!url) return "";
+  return `<a href="${escapeHTML(url)}" target="_blank" rel="noopener">${escapeHTML(label)}</a>`;
+}
+
+function showReportTab(tab) {
+  const archived = tab === "archived";
+  els.reportsTab.hidden = archived;
+  els.reportsTab.classList.toggle("hidden", archived);
+  els.archivedTab.hidden = !archived;
+  els.archivedTab.classList.toggle("hidden", !archived);
+  els.reportsTabBtn.classList.toggle("active", !archived);
+  els.archivedTabBtn.classList.toggle("active", archived);
+  els.reportsTabBtn.setAttribute("aria-selected", String(!archived));
+  els.archivedTabBtn.setAttribute("aria-selected", String(archived));
+}
+
+async function handleReportAction(event) {
+  const btn = event.target.closest("button[data-action]");
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (!id) return;
+  btn.disabled = true;
+  try {
+    if (btn.dataset.action === "archive") {
+      await postReportArchive(id);
+    } else if (btn.dataset.action === "delete") {
+      if (!confirm("Delete this archived report?")) return;
+      await deleteArchivedReport(id);
+    }
+    await refreshReports();
+  } catch (err) {
+    els.statusText.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function postReportArchive(id) {
+  const res = await fetch(`/api/reports/archive?id=${encodeURIComponent(id)}`, { method: "POST" });
+  const payload = await res.json();
+  if (!res.ok) throw new Error(payload.error || res.statusText);
+  return payload;
+}
+
+async function deleteArchivedReport(id) {
+  const res = await fetch(`/api/reports?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  const payload = await res.json();
+  if (!res.ok) throw new Error(payload.error || res.statusText);
+  return payload;
 }
 
 async function fetchJSON(url) {
