@@ -43,6 +43,7 @@ type ModelConfig struct {
 	Args    []string          `yaml:"args" json:"args"`
 	Env     map[string]string `yaml:"env" json:"env,omitempty"`
 	Enabled bool              `yaml:"enabled" json:"enabled"`
+	Default bool              `yaml:"default" json:"default"`
 }
 
 type UIConfig struct {

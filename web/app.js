@@ -63,13 +63,15 @@ function wireEvents() {
 
 function renderModels() {
   els.modelPicker.innerHTML = "";
-  Object.entries(state.models).forEach(([name, model], index) => {
+  const models = Object.entries(state.models);
+  const hasDefault = models.some(([, model]) => model.default);
+  models.forEach(([name, model], index) => {
     const label = document.createElement("label");
     label.className = "model-toggle";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.value = name;
-    input.checked = index === 0;
+    input.checked = hasDefault ? Boolean(model.default) : index === 0;
     label.append(input, model.label || name);
     els.modelPicker.append(label);
   });
